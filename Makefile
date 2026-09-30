@@ -1,4 +1,4 @@
-.PHONY: install dev build test docker-up docker-down logs help
+.PHONY: install dev build test seed migrate docker-up docker-down logs help
 
 help:
 	@echo "SIH 2026 - Acoustic Livestock Health Early-Warning System"
@@ -6,6 +6,8 @@ help:
 	@echo "  make install     - Install all local dependencies"
 	@echo "  make dev         - Run development servers"
 	@echo "  make test        - Run tests across all services"
+	@echo "  make seed        - Populate PostgreSQL with demo seed data"
+	@echo "  make migrate     - Run database migrations via Alembic"
 	@echo "  make build       - Build production artifacts"
 	@echo "  make docker-up   - Start services via docker-compose"
 	@echo "  make docker-down - Stop docker-compose services"
@@ -30,6 +32,14 @@ test:
 	cd edge_simulator && python -m pytest
 	@echo "Running frontend tests..."
 	cd frontend && npm test -- --run
+
+seed:
+	@echo "Seeding database with demo data..."
+	cd backend && python -m app.db.seed
+
+migrate:
+	@echo "Running database migrations..."
+	cd backend && alembic upgrade head
 
 build:
 	cd frontend && npm run build

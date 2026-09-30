@@ -1,0 +1,141 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "SIH 2026 - Acoustic Livestock Health Early-Warning System API",
+    "version": "0.2.0",
+    "description": "Production edge acoustic event ingestion, offline batch synchronization, and telemetry heartbeat APIs."
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "summary": "Root Health Check",
+        "responses": {
+          "200": { "description": "Successful Response" }
+        }
+      }
+    },
+    "/api/v1/edge/ingest": {
+      "post": {
+        "summary": "Ingest Real-Time Edge Acoustic Event",
+        "description": "Receives acoustic anomaly event payload from shed-mounted micro-edge sensors.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["device_uid", "timestamp", "event_type", "confidence", "duration_sec", "embedding", "signature"],
+                "properties": {
+                  "device_uid": { "type": "string", "example": "MIC-FARM01-SHED02" },
+                  "timestamp": { "type": "number", "example": 1774900000 },
+                  "event_type": { "type": "string", "enum": ["Cough", "Distress_Call", "Abnormal_Rumination", "Environmental_Noise"], "example": "Cough" },
+                  "confidence": { "type": "number", "minimum": 0.0, "maximum": 1.0, "example": 0.89 },
+                  "duration_sec": { "type": "number", "exclusiveMinimum": 0.0, "example": 2.4 },
+                  "embedding": { "type": "array", "items": { "type": "number" }, "example": [0.012, -0.045, 0.12] },
+                  "signature": { "type": "string", "example": "sha256_hmac_signature" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Event Stored & Alert Evaluated",
+            "content": {
+              "application/json": {
+                "example": {
+                  "accepted": true,
+                  "event_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+                  "device_uid": "MIC-FARM01-SHED02",
+                  "status": "stored",
+                  "alert_created": true,
+                  "alert_id": "b18fc10b-58cc-4372-a567-0e02b2c3d480"
+                }
+              }
+            }
+          },
+          "404": { "description": "Device Not Found" },
+          "422": { "description": "Validation Error" }
+        }
+      }
+    },
+    "/api/v1/edge/sync-batch": {
+      "post": {
+        "summary": "Store-and-Forward Batch Sync Endpoint",
+        "description": "Receives batched offline events from edge devices returning online. Enforces max batch size of 50.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["events"],
+                "properties": {
+                  "events": {
+                    "type": "array",
+                    "maxItems": 50,
+                    "items": { "$ref": "#/paths/~1api~1v1~1edge~1ingest/post/requestBody/content/application~1json/schema" }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Batch Processed",
+            "content": {
+              "application/json": {
+                "example": {
+                  "accepted": 47,
+                  "duplicates": 2,
+                  "rejected": 1,
+                  "results": [
+                    { "index": 0, "device_uid": "MIC-FARM01-SHED02", "accepted": true, "status": "stored", "event_id": "..." }
+                  ]
+                }
+              }
+            }
+          },
+          "422": { "description": "Batch Size Limit Exceeded (> 50)" }
+        }
+      }
+    },
+    "/api/v1/edge/heartbeat": {
+      "post": {
+        "summary": "Edge Device Health & Heartbeat Telemetry",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["device_uid"],
+                "properties": {
+                  "device_uid": { "type": "string", "example": "MIC-FARM01-SHED02" },
+                  "firmware_version": { "type": "string", "example": "0.1.0" },
+                  "status": { "type": "string", "enum": ["Online", "Offline", "Degraded"], "example": "Online" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Heartbeat Acknowledged",
+            "content": {
+              "application/json": {
+                "example": {
+                  "acknowledged": true,
+                  "device_uid": "MIC-FARM01-SHED02",
+                  "status": "Online",
+                  "last_heartbeat_at": "2026-09-30T07:45:00Z"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
