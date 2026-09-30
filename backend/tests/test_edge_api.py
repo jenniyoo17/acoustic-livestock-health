@@ -8,6 +8,7 @@ from app.core.device_auth import device_auth_service
 from app.models.acoustic_event import AcousticEvent
 from app.models.alert import Alert
 from app.schemas.ingest import IngestRequest
+from app.services.notifications import NotificationService
 
 
 def make_event(device_uid="MIC-TEST-001", timestamp=1_780_000_000.0, **overrides):
@@ -38,6 +39,19 @@ async def test_ingest_valid_event_persists_event_and_alert(async_client: AsyncCl
     assert len(db_session.records[AcousticEvent]) == 1
     assert len(db_session.records[Alert]) == 1
     assert db_session.records[AcousticEvent][0].shed_id == seed_test_device.shed_id
+
+
+@pytest.mark.asyncio
+async def test_high_alert_sends_mock_tier_one_sms(async_client: AsyncClient, seed_test_device, monkeypatch):
+    notifications = NotificationService()
+    monkeypatch.setattr("app.api.v1.edge.notification_service", notifications)
+
+    response = await async_client.post("/api/v1/edge/ingest", json=make_event())
+
+    assert response.status_code == status.HTTP_201_CREATED
+    assert len(notifications.sms.records) == 1
+    assert notifications.sms.records[0].recipient == "demo-farm-owner"
+    assert str(notifications.sms.records[0].alert_id) == response.json()["alert_id"]
 
 
 @pytest.mark.asyncio

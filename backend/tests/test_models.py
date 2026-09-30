@@ -15,6 +15,7 @@ from app.models import (
     Shed,
     SLATier,
 )
+from app.models.escalation_record import EscalationRecord
 
 
 def test_model_imports_enums_and_relationships():
@@ -23,6 +24,7 @@ def test_model_imports_enums_and_relationships():
     assert set(Base.metadata.tables) == {
         "farms",
         "sheds",
+        "escalation_records",
         "devices",
         "acoustic_events",
         "alerts",
@@ -54,6 +56,8 @@ def test_model_imports_enums_and_relationships():
     assert Device.acoustic_events.property.back_populates == "device"
     assert AcousticEvent.alert.property.back_populates == "acoustic_event"
     assert Alert.shed.property.back_populates == "alerts"
+    assert Alert.escalation_records.property.back_populates == "alert"
+    assert EscalationRecord.alert.property.back_populates == "escalation_records"
 
 
 def test_model_foreign_keys_and_check_constraints():

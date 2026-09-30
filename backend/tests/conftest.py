@@ -1,5 +1,6 @@
 import uuid
 from collections import defaultdict
+from datetime import datetime, timezone
 from typing import AsyncGenerator
 
 import pytest_asyncio
@@ -9,16 +10,27 @@ from sqlalchemy.sql.elements import BinaryExpression
 from app.db.session import get_session
 from app.main import app
 from app.models.device import Device, DeviceStatus
+from app.models.acoustic_event import AcousticEvent, EventType
+from app.models.alert import Alert, AlertStatus, AnomalySeverity, SLATier
+from app.models.escalation_record import EscalationRecord
 from app.models.farm import Farm
 from app.models.shed import AnimalType, Shed
 
 
 class MemoryResult:
-    def __init__(self, record):
-        self.record = record
+    def __init__(self, records):
+        self.records = records
 
     def scalar_one_or_none(self):
-        return self.record
+        if len(self.records) > 1:
+            raise AssertionError("Expected the lookup to return at most one record")
+        return self.records[0] if self.records else None
+
+    def scalars(self):
+        return self
+
+    def all(self):
+        return list(self.records)
 
 
 class MemorySession:
@@ -31,16 +43,18 @@ class MemorySession:
     async def execute(self, statement):
         model = statement.column_descriptions[0]["entity"]
         where_clause = statement.whereclause
-        conditions = list(where_clause.clauses) if hasattr(where_clause, "clauses") else [where_clause]
+        conditions = (
+            list(where_clause.clauses)
+            if hasattr(where_clause, "clauses")
+            else [where_clause]
+        )
         matches = self.records[model]
         for condition in conditions:
             if isinstance(condition, BinaryExpression):
                 field_name = condition.left.key
                 expected = condition.right.value
                 matches = [record for record in matches if getattr(record, field_name) == expected]
-        if len(matches) > 1:
-            raise AssertionError("Expected the lookup to return at most one record")
-        return MemoryResult(matches[0] if matches else None)
+        return MemoryResult(matches)
 
     def add(self, record):
         if getattr(record, "id", None) is None:
@@ -102,3 +116,68 @@ async def seed_test_device(db_session):
     )
     db_session.add(device)
     return device
+
+
+@pytest_asyncio.fixture
+async def seed_test_alert(db_session):
+    now = datetime(2026, 9, 30, 12, 0, tzinfo=timezone.utc)
+    farm = Farm(
+        name="SLA Test Farm",
+        owner_name="Test Owner",
+        contact_phone="+910000000003",
+        latitude=22.5,
+        longitude=72.9,
+        district="Anand",
+        state="Gujarat",
+        created_at=now,
+    )
+    db_session.add(farm)
+    shed = Shed(
+        farm_id=farm.id,
+        shed_number="SLA-01",
+        animal_type=AnimalType.Cattle,
+        capacity=10,
+        current_count=8,
+        created_at=now,
+    )
+    db_session.add(shed)
+    device = Device(
+        shed_id=shed.id,
+        device_uid="MIC-SLA-001",
+        firmware_version="0.1.0",
+        status=DeviceStatus.Online,
+        created_at=now,
+    )
+    db_session.add(device)
+    event = AcousticEvent(
+        device_id=device.id,
+        shed_id=shed.id,
+        event_type=EventType.Cough,
+        confidence_score=0.92,
+        yamnet_embedding_vector=[0.1, 0.2],
+        audio_duration_sec=2.0,
+        recorded_at=now,
+        is_synced_offline=False,
+        created_at=now,
+    )
+    db_session.add(event)
+    alert = Alert(
+        acoustic_event_id=event.id,
+        shed_id=shed.id,
+        anomaly_severity=AnomalySeverity.High,
+        status=AlertStatus.Pending_Triage,
+        current_sla_tier=SLATier.Tier_1_Farm_Owner,
+        triggered_at=now,
+    )
+    db_session.add(alert)
+    db_session.add(
+        EscalationRecord(
+            alert_id=alert.id,
+            from_tier=None,
+            to_tier=SLATier.Tier_1_Farm_Owner,
+            reason="Initial SLA notification",
+            triggered_at=now,
+            created_at=now,
+        )
+    )
+    return alert

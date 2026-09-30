@@ -13,6 +13,7 @@ from app.db.session import get_session
 from app.models.acoustic_event import AcousticEvent, EventType
 from app.models.alert import Alert, AlertStatus, AnomalySeverity, SLATier
 from app.models.device import Device
+from app.models.escalation_record import EscalationRecord
 from app.schemas.ingest import (
     BatchItemResult,
     BatchSyncRequest,
@@ -22,6 +23,7 @@ from app.schemas.ingest import (
     IngestRequest,
     IngestResponse,
 )
+from app.services.notifications import notification_service
 
 router = APIRouter()
 
@@ -96,6 +98,20 @@ def _new_alert(event: AcousticEvent) -> Alert | None:
         anomaly_severity=calculate_anomaly_severity(event.confidence_score),
         status=AlertStatus.Pending_Triage,
         current_sla_tier=SLATier.Tier_1_Farm_Owner,
+        triggered_at=datetime.now(timezone.utc),
+    )
+
+
+def _new_initial_escalation_record(alert: Alert) -> EscalationRecord | None:
+    if alert.anomaly_severity not in {AnomalySeverity.High, AnomalySeverity.Critical}:
+        return None
+    return EscalationRecord(
+        alert_id=alert.id,
+        from_tier=None,
+        to_tier=SLATier.Tier_1_Farm_Owner,
+        reason="Initial SLA notification",
+        triggered_at=alert.triggered_at,
+        created_at=alert.triggered_at,
     )
 
 
@@ -132,10 +148,18 @@ async def ingest_event(
     db.add(event)
     await db.flush()
     alert = _new_alert(event)
+    send_initial_notification = False
     if alert is not None:
         db.add(alert)
         await db.flush()
+        initial_record = _new_initial_escalation_record(alert)
+        if initial_record is not None:
+            db.add(initial_record)
+            send_initial_notification = True
+            await db.flush()
     await db.commit()
+    if send_initial_notification and alert is not None:
+        notification_service.notify_tier(alert.id, SLATier.Tier_1_Farm_Owner)
 
     return IngestResponse(
         accepted=True,
@@ -164,6 +188,7 @@ async def sync_batch(
     duplicates = 0
     rejected = 0
     results: list[BatchItemResult] = []
+    initial_notification_ids: list[uuid.UUID] = []
 
     for index, item in enumerate(payload.events):
         device = await _get_device(db, item.device_uid)
@@ -214,6 +239,11 @@ async def sync_batch(
         if alert is not None:
             db.add(alert)
             await db.flush()
+            initial_record = _new_initial_escalation_record(alert)
+            if initial_record is not None:
+                db.add(initial_record)
+                initial_notification_ids.append(alert.id)
+                await db.flush()
         accepted += 1
         results.append(
             BatchItemResult(
@@ -226,6 +256,8 @@ async def sync_batch(
         )
 
     await db.commit()
+    for alert_id in initial_notification_ids:
+        notification_service.notify_tier(alert_id, SLATier.Tier_1_Farm_Owner)
     return BatchSyncResponse(
         accepted=accepted,
         duplicates=duplicates,

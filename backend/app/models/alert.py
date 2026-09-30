@@ -69,3 +69,6 @@ class Alert(Base):
 
     acoustic_event: Mapped["AcousticEvent"] = relationship(back_populates="alert")
     shed: Mapped["Shed"] = relationship(back_populates="alerts")
+    escalation_records: Mapped[list["EscalationRecord"]] = relationship(
+        back_populates="alert", cascade="all, delete-orphan", order_by="EscalationRecord.created_at"
+    )

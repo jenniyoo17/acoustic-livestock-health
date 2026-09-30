@@ -8,7 +8,31 @@ An offline-first platform for detecting unusual livestock acoustic patterns, inc
 
 The planned system connects shed microphones to edge inference, offline storage and synchronization, a FastAPI backend backed by PostgreSQL, alert review workflows, a geospatial dashboard, and government data export. See [docs/architecture.md](docs/architecture.md) and [docs/implementation-plan.md](docs/implementation-plan.md).
 
-This repository currently contains **Milestones 1, 2, and 3**: the monorepo foundation, PostgreSQL persistence and edge APIs, and an ML inference pipeline with real pretrained YAMNet embeddings plus an untrained demo classifier. Later workflows and the full dashboard are not implemented yet.
+This repository currently contains **Milestones 1-4**: the monorepo foundation, PostgreSQL persistence and edge APIs, ML inference with real pretrained YAMNet embeddings plus an untrained demo classifier, and a timestamp-driven alert SLA workflow. Veterinary/lab workflows and the full dashboard are not implemented yet.
+
+## Milestone 4 Alert SLA Workflow
+
+High/Critical alerts begin at `Tier_1_Farm_Owner` and receive a demo SMS notification. Tier 1 has a 15-minute acknowledgement SLA; if it expires, the alert advances to `Tier_2_Field_Vet` with a demo SMS. Tier 2 has a 45-minute acknowledgement SLA; if it expires, the alert advances to `Tier_3_District_Officer` with a demo voice notification. Lower severities do not run SLA escalation.
+
+The alert state transitions use the existing statuses: `Pending_Triage` -> `Escalated` -> `Under_Vet_Review` -> `Verified_Risk` or `False_Positive` -> `Resolved`. A Tier 1 acknowledgement advances the alert to `Under_Vet_Review` and starts Tier 2 review. Acknowledgements require the current tier and a repeated/stale tier returns HTTP 409. This demo milestone does not expose an API to mark an alert verified or false positive; no escalation code can assert a disease outcome.
+
+The `escalation_records` PostgreSQL table records each tier's trigger, acknowledgement, reason, and timestamps. Apply its migration with `make migrate`. Acknowledging an alert is:
+
+```sh
+curl -X POST http://localhost:8000/api/v1/alerts/<alert-id>/acknowledge \
+	-H "Content-Type: application/json" \
+	-d '{"tier":"Tier_1_Farm_Owner"}'
+```
+
+Use `GET /api/v1/alerts/escalation-status` for dashboard-ready current deadlines and history, or `GET /api/v1/alerts/<alert-id>` for alert/event/shed/device detail. Both GET endpoints accept an optional ISO timestamp `at` for viewing state at a simulated time; GET does not mutate alerts. To actually process due notifications, call the evaluator with demo time:
+
+```sh
+curl -X POST 'http://localhost:8000/api/v1/alerts/escalations/evaluate?at=2026-09-30T12:16:00Z'
+```
+
+For a seeded/test alert triggered at `12:00Z`, evaluating at `12:16Z` escalates to Tier 2 immediately. Evaluating again at `13:01Z` breaches Tier 2's 45-minute window from its Tier 2 notification time. No sleeps or background escalation loop are used.
+
+SMS and voice adapters are mock-only: they log and retain the recipient, notification type, alert ID, message, and timestamp in process memory. No real provider is contacted. Message language remains “Acoustic anomaly detected” and “Veterinary verification required.”
 
 ## Milestone 3 ML Pipeline
 
