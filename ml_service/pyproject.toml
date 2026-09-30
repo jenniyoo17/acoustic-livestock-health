@@ -2,7 +2,18 @@
 name = "acoustic-livestock-ml-service"
 version = "0.1.0"
 requires-python = ">=3.11,<3.12"
+dependencies = [
+	"fastapi>=0.110,<1.0",
+	"uvicorn[standard]>=0.28,<1.0",
+	"python-multipart>=0.0.9,<1.0",
+	"numpy>=1.26,<2.0",
+	"scipy>=1.11,<2.0",
+	"soundfile>=0.12,<1.0",
+	"tensorflow-cpu>=2.15,<2.16",
+	"tensorflow-hub>=0.16,<0.17",
+]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = ["real_yamnet: opt-in integration test that loads the pretrained YAMNet model"]

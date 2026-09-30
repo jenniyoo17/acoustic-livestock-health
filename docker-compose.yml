@@ -19,6 +19,7 @@ services:
     build: ./backend
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-development-only-change-me}@postgres:5432/${POSTGRES_DB:-acoustic_livestock}
+      DEVICE_HMAC_SECRET: ${DEVICE_HMAC_SECRET:-development-only-device-hmac-secret-change-before-deployment}
     ports:
       - "8000:8000"
     depends_on:

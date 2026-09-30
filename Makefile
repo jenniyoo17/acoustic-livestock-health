@@ -1,4 +1,4 @@
-.PHONY: install dev build test docker-up docker-down logs
+.PHONY: install dev build test migrate seed docker-up docker-down logs
 
 install:
 	python -m pip install -r backend/requirements.txt
@@ -17,6 +17,12 @@ test:
 	cd ml_service && python -m pytest -q
 	cd edge_simulator && python -m pytest -q
 	cd frontend && npm test -- --run
+
+migrate:
+	cd backend && alembic upgrade head
+
+seed:
+	cd backend && python -m app.db.seed_postgres
 
 docker-up:
 	docker compose up --build -d

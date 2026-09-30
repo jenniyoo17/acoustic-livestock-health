@@ -17,3 +17,15 @@ async def test_health_response():
         "service": "acoustic-livestock-health-backend",
         "version": "0.1.0",
     }
+
+
+@pytest.mark.asyncio
+async def test_edge_routes_are_registered(async_client):
+    response = await async_client.get("/openapi.json")
+
+    assert response.status_code == 200
+    assert {
+        "/api/v1/edge/ingest",
+        "/api/v1/edge/sync-batch",
+        "/api/v1/edge/heartbeat",
+    }.issubset(response.json()["paths"])

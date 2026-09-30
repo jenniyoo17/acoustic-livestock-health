@@ -1,4 +1,5 @@
 .env
+**/*.tsbuildinfo
 __pycache__/
 *.pyc
 .pytest_cache/
@@ -6,6 +7,11 @@ node_modules/
 dist/
 build/
 *.db
+*.keras
+*.h5
+*.tflite
+ml_service/models/
+ml_service/demo-*.wav
 .venv/
 venv/
 .DS_Store
