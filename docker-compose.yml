@@ -1,0 +1,74 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: acoustic_livestock_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres_password_sih2026}
+      POSTGRES_DB: ${POSTGRES_DB:-acoustic_livestock_db}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: acoustic_livestock_backend
+    restart: always
+    environment:
+      - ENVIRONMENT=${ENVIRONMENT:-development}
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres_password_sih2026}@postgres:5432/${POSTGRES_DB:-acoustic_livestock_db}
+      - ML_SERVICE_URL=http://ml_service:8001
+      - SECRET_KEY=${SECRET_KEY:-sih_2026_acoustic_livestock_health_secret_key}
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  ml_service:
+    build:
+      context: ./ml_service
+      dockerfile: Dockerfile
+    container_name: acoustic_livestock_ml
+    restart: always
+    environment:
+      - ENVIRONMENT=${ENVIRONMENT:-development}
+      - PORT=8001
+    ports:
+      - "8001:8001"
+
+  edge_simulator:
+    build:
+      context: ./edge_simulator
+      dockerfile: Dockerfile
+    container_name: acoustic_livestock_edge_sim
+    restart: always
+    environment:
+      - EDGE_INGEST_URL=http://backend:8000/api/v1/edge/ingest
+    depends_on:
+      - backend
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: acoustic_livestock_frontend
+    restart: always
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
