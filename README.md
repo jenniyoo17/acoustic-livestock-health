@@ -8,7 +8,13 @@ An offline-first platform for detecting unusual livestock acoustic patterns, inc
 
 The planned system connects shed microphones to edge inference, offline storage and synchronization, a FastAPI backend backed by PostgreSQL, alert review workflows, a geospatial dashboard, and government data export. See [docs/architecture.md](docs/architecture.md) and [docs/implementation-plan.md](docs/implementation-plan.md).
 
-This repository currently contains **Milestones 1-6**: the monorepo foundation, PostgreSQL persistence and edge APIs, ML inference with real pretrained YAMNet embeddings plus an untrained demo classifier, timestamp-driven SLA workflow, demo veterinary/lab workflows, and a PostgreSQL-backed tamper-evident audit hash chain. The full dashboard and later milestones are not implemented yet.
+This repository currently contains **Milestones 1-7**: the monorepo foundation, PostgreSQL persistence and edge APIs, ML inference with real pretrained YAMNet embeddings plus an untrained demo classifier, timestamp-driven SLA workflow, demo veterinary/lab workflows, a PostgreSQL-backed tamper-evident audit hash chain, and a local-first edge simulator that queues signed events, retries offline sync, batches up to 50 items, verifies SHA-256 batch hashes, and exposes demonstration CLI/heartbeat/inspection commands. The full dashboard and later milestones are not implemented yet.
+
+## Milestone 7 Edge Offline Queue & Sync
+
+The edge simulator intentionally keeps a local SQLite-backed queue for device events when the upstream backend is unavailable. Events are generated with the same HMAC-SHA256 shared-secret signing contract used by the central backend: canonical compact JSON of the event payload excluding the `signature` field is hashed and verified using the same secret. The queue supports offline accumulation, automatic retry, idempotent sync, status tracking, queue inspection, and a heartbeat endpoint for the local device. Batch sync enforces the backend rule of at most 50 events per request and recalculates the SHA-256 batch hash from canonical event ordering and contents before transmission.
+
+The simulator includes a CLI for generation, queue inspection, sync, heartbeat, and status checks. A batch upload failure leaves queued events in an unsynced state with a recorded last error and retries the next sync cycle; successful sync removes or deduplicates matching events without introducing new database behavior in the backend. SQLite is used only for the edge-local queue and never as a replacement for the PostgreSQL-backed central API.
 
 ## Milestone 6 Audit Ledger
 
