@@ -13,6 +13,8 @@ from app.models.device import Device, DeviceStatus
 from app.models.acoustic_event import AcousticEvent, EventType
 from app.models.alert import Alert, AlertStatus, AnomalySeverity, SLATier
 from app.models.escalation_record import EscalationRecord
+from app.models.lab_referral import LabReferralStatus
+from app.models.vet_verification import VetVerification, VetVerificationOutcome
 from app.models.farm import Farm
 from app.models.shed import AnimalType, Shed
 
@@ -180,4 +182,68 @@ async def seed_test_alert(db_session):
             created_at=now,
         )
     )
+    return alert
+
+
+@pytest_asyncio.fixture
+async def seed_verified_alert(db_session):
+    now = datetime(2026, 9, 30, 12, 0, tzinfo=timezone.utc)
+    farm = Farm(
+        name="Verified Test Farm",
+        owner_name="Demo Vet Owner",
+        contact_phone="+910000000004",
+        latitude=22.5,
+        longitude=72.9,
+        district="Anand",
+        state="Gujarat",
+        created_at=now,
+    )
+    db_session.add(farm)
+    shed = Shed(
+        farm_id=farm.id,
+        shed_number="VET-01",
+        animal_type=AnimalType.Cattle,
+        capacity=12,
+        current_count=9,
+        created_at=now,
+    )
+    db_session.add(shed)
+    device = Device(
+        shed_id=shed.id,
+        device_uid="MIC-VERIFIED-001",
+        firmware_version="0.1.0",
+        status=DeviceStatus.Online,
+        created_at=now,
+    )
+    db_session.add(device)
+    event = AcousticEvent(
+        device_id=device.id,
+        shed_id=shed.id,
+        event_type=EventType.Cough,
+        confidence_score=0.96,
+        yamnet_embedding_vector=[0.2, 0.4],
+        audio_duration_sec=2.3,
+        recorded_at=now,
+        is_synced_offline=False,
+        created_at=now,
+    )
+    db_session.add(event)
+    alert = Alert(
+        acoustic_event_id=event.id,
+        shed_id=shed.id,
+        anomaly_severity=AnomalySeverity.Critical,
+        status=AlertStatus.Verified_Risk,
+        current_sla_tier=SLATier.Tier_2_Field_Vet,
+        triggered_at=now,
+    )
+    db_session.add(alert)
+    verification = VetVerification(
+        alert_id=alert.id,
+        vet_identifier="DEMO-VET-001",
+        verification_status=VetVerificationOutcome.Verified_Risk,
+        assessment_notes="Demo verification only; requires real clinical follow-up.",
+        verified_at=now,
+        created_at=now,
+    )
+    db_session.add(verification)
     return alert

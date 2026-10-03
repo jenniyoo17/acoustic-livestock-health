@@ -16,8 +16,12 @@ from app.models import (
     EventType,
     EscalationRecord,
     Farm,
+    LabReferral,
+    LabReferralStatus,
     Shed,
     SLATier,
+    VetVerification,
+    VetVerificationOutcome,
 )
 
 SEED_NAMESPACE = uuid.UUID("288f5ac4-5a3c-45ed-90c4-6d2ac2e41ee0")
@@ -181,6 +185,48 @@ async def seed_data() -> None:
             is_synced_offline=False,
             idempotency_key=None,
         )
+        event_vet_review = await _add_if_missing(
+            session,
+            AcousticEvent,
+            seed_id("event-demo-vet-review"),
+            device_id=device_cattle.id,
+            shed_id=shed_cattle.id,
+            event_type=EventType.Abnormal_Rumination,
+            confidence_score=0.86,
+            yamnet_embedding_vector=[0.15, 0.05, -0.2],
+            audio_duration_sec=2.6,
+            recorded_at=SEED_RECORDED_AT + timedelta(minutes=20),
+            is_synced_offline=False,
+            idempotency_key=None,
+        )
+        event_false_positive = await _add_if_missing(
+            session,
+            AcousticEvent,
+            seed_id("event-demo-false-positive"),
+            device_id=device_buffalo.id,
+            shed_id=shed_buffalo.id,
+            event_type=EventType.Cough,
+            confidence_score=0.72,
+            yamnet_embedding_vector=[0.04, -0.03, 0.02],
+            audio_duration_sec=1.8,
+            recorded_at=SEED_RECORDED_AT + timedelta(minutes=25),
+            is_synced_offline=False,
+            idempotency_key=None,
+        )
+        event_verified_risk = await _add_if_missing(
+            session,
+            AcousticEvent,
+            seed_id("event-demo-verified-risk"),
+            device_id=device_goat.id,
+            shed_id=shed_goat.id,
+            event_type=EventType.Distress_Call,
+            confidence_score=0.97,
+            yamnet_embedding_vector=[0.3, -0.15, 0.22],
+            audio_duration_sec=2.9,
+            recorded_at=SEED_RECORDED_AT + timedelta(minutes=30),
+            is_synced_offline=False,
+            idempotency_key=None,
+        )
         await session.flush()
 
         high_pending = await _add_if_missing(
@@ -226,6 +272,40 @@ async def seed_data() -> None:
             status=AlertStatus.Pending_Triage,
             current_sla_tier=SLATier.Tier_1_Farm_Owner,
             triggered_at=SEED_RECORDED_AT + timedelta(minutes=2),
+        )
+        vet_review_alert = await _add_if_missing(
+            session,
+            Alert,
+            seed_id("alert-demo-awaiting-vet"),
+            acoustic_event_id=event_vet_review.id,
+            shed_id=shed_cattle.id,
+            anomaly_severity=AnomalySeverity.High,
+            status=AlertStatus.Under_Vet_Review,
+            current_sla_tier=SLATier.Tier_2_Field_Vet,
+            triggered_at=SEED_RECORDED_AT + timedelta(minutes=20),
+        )
+        false_positive_alert = await _add_if_missing(
+            session,
+            Alert,
+            seed_id("alert-demo-false-positive"),
+            acoustic_event_id=event_false_positive.id,
+            shed_id=shed_buffalo.id,
+            anomaly_severity=AnomalySeverity.Medium,
+            status=AlertStatus.Resolved,
+            current_sla_tier=SLATier.Tier_2_Field_Vet,
+            triggered_at=SEED_RECORDED_AT + timedelta(minutes=25),
+            resolved_at=SEED_RECORDED_AT + timedelta(minutes=27),
+        )
+        verified_risk_alert = await _add_if_missing(
+            session,
+            Alert,
+            seed_id("alert-demo-verified-risk"),
+            acoustic_event_id=event_verified_risk.id,
+            shed_id=shed_goat.id,
+            anomaly_severity=AnomalySeverity.Critical,
+            status=AlertStatus.Verified_Risk,
+            current_sla_tier=SLATier.Tier_2_Field_Vet,
+            triggered_at=SEED_RECORDED_AT + timedelta(minutes=30),
         )
         await session.flush()
         await _add_if_missing(
@@ -276,8 +356,71 @@ async def seed_data() -> None:
             acknowledged_at=None,
             created_at=critical_alert.triggered_at,
         )
+        vet_review_tier_one_time = SEED_RECORDED_AT + timedelta(minutes=22)
+        await _add_if_missing(
+            session,
+            EscalationRecord,
+            seed_id("escalation-awaiting-vet-tier-one"),
+            alert_id=vet_review_alert.id,
+            from_tier=None,
+            to_tier=SLATier.Tier_1_Farm_Owner,
+            reason="Initial SLA notification",
+            triggered_at=SEED_RECORDED_AT + timedelta(minutes=20),
+            acknowledged_at=vet_review_tier_one_time,
+            created_at=SEED_RECORDED_AT + timedelta(minutes=20),
+        )
+        await _add_if_missing(
+            session,
+            EscalationRecord,
+            seed_id("escalation-awaiting-vet-tier-two"),
+            alert_id=vet_review_alert.id,
+            from_tier=SLATier.Tier_1_Farm_Owner,
+            to_tier=SLATier.Tier_2_Field_Vet,
+            reason="Farm owner acknowledged; veterinary review requested",
+            triggered_at=vet_review_tier_one_time,
+            acknowledged_at=None,
+            created_at=vet_review_tier_one_time,
+        )
+        verification_false_positive = await _add_if_missing(
+            session,
+            VetVerification,
+            seed_id("vet-verification-false-positive"),
+            alert_id=false_positive_alert.id,
+            vet_identifier="DEMO-VET-001",
+            verification_status=VetVerificationOutcome.False_Positive,
+            assessment_notes="DEMO ONLY: sample alert marked false positive for workflow demonstration.",
+            verified_at=false_positive_alert.resolved_at,
+            created_at=false_positive_alert.resolved_at,
+        )
+        verification_verified_risk = await _add_if_missing(
+            session,
+            VetVerification,
+            seed_id("vet-verification-verified-risk"),
+            alert_id=verified_risk_alert.id,
+            vet_identifier="DEMO-VET-002",
+            verification_status=VetVerificationOutcome.Verified_Risk,
+            assessment_notes="DEMO ONLY: verification workflow example; not real clinical data.",
+            verified_at=SEED_RECORDED_AT + timedelta(minutes=32),
+            created_at=SEED_RECORDED_AT + timedelta(minutes=32),
+        )
+        await _add_if_missing(
+            session,
+            LabReferral,
+            seed_id("lab-referral-verified-risk"),
+            alert_id=verified_risk_alert.id,
+            verification_id=verification_verified_risk.id,
+            sample_identifier="DEMO-SAMPLE-001",
+            requested_tests=["Demo sample intake"],
+            status=LabReferralStatus.Pending,
+            referred_at=SEED_RECORDED_AT + timedelta(minutes=33),
+            result=None,
+            result_at=None,
+            notes="DEMO ONLY: pending referral; no lab result supplied.",
+            is_demo_result=False,
+            created_at=SEED_RECORDED_AT + timedelta(minutes=33),
+        )
 
-    print("Seeded demo farms, sheds, devices, acoustic events, and low/high/critical SLA alerts in PostgreSQL.")
+    print("Seeded demo alerts for low, Tier 1, Tier 2, critical, under-review, false-positive, and pending-referral flows.")
 
 
 async def main() -> None:

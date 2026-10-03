@@ -72,3 +72,9 @@ class Alert(Base):
     escalation_records: Mapped[list["EscalationRecord"]] = relationship(
         back_populates="alert", cascade="all, delete-orphan", order_by="EscalationRecord.created_at"
     )
+    vet_verification: Mapped["VetVerification | None"] = relationship(
+        back_populates="alert", cascade="all, delete-orphan", uselist=False
+    )
+    lab_referral: Mapped["LabReferral | None"] = relationship(
+        back_populates="alert", cascade="all, delete-orphan", uselist=False
+    )

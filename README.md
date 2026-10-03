@@ -8,7 +8,23 @@ An offline-first platform for detecting unusual livestock acoustic patterns, inc
 
 The planned system connects shed microphones to edge inference, offline storage and synchronization, a FastAPI backend backed by PostgreSQL, alert review workflows, a geospatial dashboard, and government data export. See [docs/architecture.md](docs/architecture.md) and [docs/implementation-plan.md](docs/implementation-plan.md).
 
-This repository currently contains **Milestones 1-4**: the monorepo foundation, PostgreSQL persistence and edge APIs, ML inference with real pretrained YAMNet embeddings plus an untrained demo classifier, and a timestamp-driven alert SLA workflow. Veterinary/lab workflows and the full dashboard are not implemented yet.
+This repository currently contains **Milestones 1-5**: the monorepo foundation, PostgreSQL persistence and edge APIs, ML inference with real pretrained YAMNet embeddings plus an untrained demo classifier, a timestamp-driven SLA workflow, and demo veterinary verification/lab referral APIs. The full dashboard and later milestones are not implemented yet.
+
+## Milestone 5 Vet and Lab Workflow
+
+`POST /api/v1/vet/verify` accepts an `alert_id`, `outcome` (`Verified_Risk` or `False_Positive`), `vet_identifier`, and `notes`. Verification is allowed only when the alert is `Under_Vet_Review`, after the Milestone 4 acknowledgement flow. Unknown alerts return 404; alerts in another state or already verified return 409. `False_Positive` is recorded and the alert becomes `Resolved`; `Verified_Risk` remains available for a lab referral. These outcomes record a human workflow decision, not a medical diagnosis.
+
+Example vet request:
+
+```json
+{"alert_id": "<alert-uuid>", "outcome": "Verified_Risk", "vet_identifier": "DEMO-VET-017", "notes": "Demo assessment; not clinical data."}
+```
+
+`POST /api/v1/lab/referrals` accepts `alert_id`, `sample_identifier`, `requested_tests`, and optional `notes`. It only creates one referral for a `Verified_Risk` alert with a saved verification. False-positive, unresolved, or otherwise unverified alerts are rejected. `GET /api/v1/lab/referrals/<referral-id>` returns the referral, alert, and verification.
+
+Lab status updates use `PATCH /api/v1/lab/referrals/<referral-id>/status`. Allowed progression is `Pending` -> `Sample_Collected` -> `In_Lab` -> `Result_Available`, with `Cancelled` available before a result. A manually entered result is required for `Result_Available`; it is prefixed with `DEMO:` and marked `is_demo_result=true`. The service never fabricates a result. Making a result available resolves a Verified_Risk alert; no lab provider is integrated.
+
+The `vet_verifications` and `lab_referrals` PostgreSQL tables are in migration 003 (`make migrate`). Deterministic seed data includes an alert under vet review, a False_Positive example, a Verified_Risk example, and a Verified_Risk with a pending referral. Their notes/sample IDs are demo-only; no clinical results or disease statistics are seeded.
 
 ## Milestone 4 Alert SLA Workflow
 
@@ -16,7 +32,7 @@ High/Critical alerts begin at `Tier_1_Farm_Owner` and receive a demo SMS notific
 
 The alert state transitions use the existing statuses: `Pending_Triage` -> `Escalated` -> `Under_Vet_Review` -> `Verified_Risk` or `False_Positive` -> `Resolved`. A Tier 1 acknowledgement advances the alert to `Under_Vet_Review` and starts Tier 2 review. Acknowledgements require the current tier and a repeated/stale tier returns HTTP 409. This demo milestone does not expose an API to mark an alert verified or false positive; no escalation code can assert a disease outcome.
 
-The `escalation_records` PostgreSQL table records each tier's trigger, acknowledgement, reason, and timestamps. Apply its migration with `make migrate`. Acknowledging an alert is:
+The `escalation_records` PostgreSQL table records each tier's trigger, acknowledgement, reason, and timestamps. Apply migrations with `make migrate`. Acknowledging an alert is:
 
 ```sh
 curl -X POST http://localhost:8000/api/v1/alerts/<alert-id>/acknowledge \

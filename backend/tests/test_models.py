@@ -11,9 +11,11 @@ from app.models import (
     Device,
     DeviceStatus,
     EventType,
+    LabReferral,
     Farm,
     Shed,
     SLATier,
+    VetVerification,
 )
 from app.models.escalation_record import EscalationRecord
 
@@ -28,6 +30,8 @@ def test_model_imports_enums_and_relationships():
         "devices",
         "acoustic_events",
         "alerts",
+        "vet_verifications",
+        "lab_referrals",
     }
     assert {item.value for item in AnimalType} == {"Cattle", "Buffalo", "Goat", "Sheep"}
     assert {item.value for item in DeviceStatus} == {"Online", "Offline", "Degraded"}
@@ -58,6 +62,10 @@ def test_model_imports_enums_and_relationships():
     assert Alert.shed.property.back_populates == "alerts"
     assert Alert.escalation_records.property.back_populates == "alert"
     assert EscalationRecord.alert.property.back_populates == "escalation_records"
+    assert Alert.vet_verification.property.back_populates == "alert"
+    assert Alert.lab_referral.property.back_populates == "alert"
+    assert VetVerification.lab_referral.property.back_populates == "verification"
+    assert LabReferral.verification.property.back_populates == "lab_referral"
 
 
 def test_model_foreign_keys_and_check_constraints():

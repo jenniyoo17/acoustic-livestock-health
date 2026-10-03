@@ -3,7 +3,9 @@ from app.models.alert import Alert, AlertStatus, AnomalySeverity, SLATier
 from app.models.device import Device, DeviceStatus
 from app.models.escalation_record import EscalationRecord
 from app.models.farm import Farm
+from app.models.lab_referral import LabReferral, LabReferralStatus
 from app.models.shed import AnimalType, Shed
+from app.models.vet_verification import VetVerification, VetVerificationOutcome
 
 __all__ = [
     "AcousticEvent",
@@ -16,6 +18,10 @@ __all__ = [
     "EventType",
     "EscalationRecord",
     "Farm",
+    "LabReferral",
+    "LabReferralStatus",
     "Shed",
     "SLATier",
+    "VetVerification",
+    "VetVerificationOutcome",
 ]
