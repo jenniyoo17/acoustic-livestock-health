@@ -19,3 +19,4 @@ venv/
 .vscode/
 *.swp
 *.swo
+frontend/.vitest-results.json
