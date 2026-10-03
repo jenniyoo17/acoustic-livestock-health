@@ -1,213 +1,214 @@
 # Acoustic Livestock Health Early-Warning System
 
-An offline-first platform for detecting unusual livestock acoustic patterns, including coughs, distress calls, and abnormal rumination. The system is intended to provide early warnings for human review.
+An offline-first demo platform for monitoring livestock acoustic patterns such as coughs, distress calls, and abnormal rumination. The system is designed to surface early warnings for human review in a controlled operational workflow.
 
-> **Medical disclaimer:** Acoustic early-warning anomaly detection only. Veterinary verification required. This system does not diagnose disease.
+> Medical boundary: "Acoustic Early-Warning & Anomaly Detection only." Veterinary clinical verification remains mandatory. The system does not diagnose disease or prescribe treatment.
 
-## Architecture
+## 1. Project Overview
 
-The planned system connects shed microphones to edge inference, offline storage and synchronization, a FastAPI backend backed by PostgreSQL, alert review workflows, a geospatial dashboard, and government data export. See [docs/architecture.md](docs/architecture.md) and [docs/implementation-plan.md](docs/implementation-plan.md).
+This repository implements the SIH 2026 acoustic livestock health early-warning workflow across four services:
 
-This repository currently contains **Milestones 1-7**: the monorepo foundation, PostgreSQL persistence and edge APIs, ML inference with real pretrained YAMNet embeddings plus an untrained demo classifier, timestamp-driven SLA workflow, demo veterinary/lab workflows, a PostgreSQL-backed tamper-evident audit hash chain, and a local-first edge simulator that queues signed events, retries offline sync, batches up to 50 items, verifies SHA-256 batch hashes, and exposes demonstration CLI/heartbeat/inspection commands. The full dashboard and later milestones are not implemented yet.
+- Backend: FastAPI + PostgreSQL data model for alerts, SLA, vet/lab workflows, and audit logging
+- Edge simulator: SQLite-backed local queue with offline buffering, signing, retry, batching, and sync
+- ML service: YAMNet embedding pipeline and demo classifier
+- Frontend: React + TypeScript + Vite dashboard for command center, alerts, vet/lab, audit, and export views
 
-## Milestone 7 Edge Offline Queue & Sync
+The system is a demonstration environment, not a production clinical or government system.
 
-The edge simulator intentionally keeps a local SQLite-backed queue for device events when the upstream backend is unavailable. Events are generated with the same HMAC-SHA256 shared-secret signing contract used by the central backend: canonical compact JSON of the event payload excluding the `signature` field is hashed and verified using the same secret. The queue supports offline accumulation, automatic retry, idempotent sync, status tracking, queue inspection, and a heartbeat endpoint for the local device. Batch sync enforces the backend rule of at most 50 events per request and recalculates the SHA-256 batch hash from canonical event ordering and contents before transmission.
+## 2. Problem Being Addressed
 
-The simulator includes a CLI for generation, queue inspection, sync, heartbeat, and status checks. A batch upload failure leaves queued events in an unsynced state with a recorded last error and retries the next sync cycle; successful sync removes or deduplicates matching events without introducing new database behavior in the backend. SQLite is used only for the edge-local queue and never as a replacement for the PostgreSQL-backed central API.
+The project models a livestock monitoring operation where edge microphones generate acoustic events, the local device keeps a queue when connectivity is poor, and the central backend resolves escalation, review, and compliance evidence. The practical problem is ensuring the offline-first pipeline, alert workflow, and proof trail work reliably without inventing fake integrations.
 
-## Milestone 6 Audit Ledger
+## 3. Solution
 
-The audit ledger is an append-only SHA-256 hash chain stored in the central PostgreSQL database. It is **not a blockchain**: there is no network, consensus, wallet, smart contract, or external ledger. Block index, timestamp, previous hash, entity type/ID, and payload hash are serialized as compact JSON with sorted keys and UTF-8 encoded before SHA-256 hashing. Payloads use the same canonical JSON rules to produce `payload_hash`; raw workflow payloads are not stored in the ledger.
+The repository contains a full demo stack that:
 
-The deterministic genesis block is index `0`, timestamp `1970-01-01T00:00:00+00:00`, `previous_hash=null`, `entity_type="GENESIS"`, `entity_id="0"`, and payload `{"type":"GENESIS"}`. The first event block references its hash. Unique indexes/hashes/transition keys and a PostgreSQL transaction-scoped advisory lock serialize appends; business writes and audit appends share a transaction. Repeated identical transitions are idempotent. A failed audit append aborts the corresponding workflow transaction rather than falling back to memory.
+- captures edge events locally when the backend is unreachable
+- batches signed events up to 50 per request and verifies batch hashes
+- ingests events into the central backend PostgreSQL pipeline
+- creates alert + SLA escalation states
+- supports acknowledgement, vet review, and lab referral workflows
+- records a tamper-evident SHA-256 audit ledger
+- exposes a React dashboard that reads the real backend contract
 
-Audited transitions include alert creation, SLA escalation, acknowledgement, veterinary verification, lab referral creation, and lab referral status changes. The audit ledger records application workflow events; it does not establish medical truth and does not replace veterinary verification.
+## 4. Architecture
 
-```sh
-curl http://localhost:8000/api/v1/audit/chain
-curl -X POST http://localhost:8000/api/v1/audit/verify-integrity
+```text
+Edge device / simulator
+  ↓
+Local SQLite queue
+  ↓
+Signed batch sync
+  ↓
+FastAPI backend (PostgreSQL)
+  ↓
+Acoustic event -> alert -> SLA -> vet/lab workflow
+  ↓
+Tamper-evident SHA-256 audit ledger
+  ↓
+React dashboard and export views
 ```
 
-Integrity verification checks the unique sequential indexes, single deterministic genesis, previous-hash links, transition keys, and recalculated block hashes. Tampering/deletion is reported as `valid: false` with a block-specific error. The `audit_blocks` table is migration 004 and is included in the PostgreSQL-only deterministic demo seed.
+The backend remains PostgreSQL-backed; SQLite is used only in the edge simulator queue. The system is intentionally offline-first and delay-tolerant, but not medical-grade.
 
-## Milestone 5 Vet and Lab Workflow
+## 5. Technology Stack
 
-`POST /api/v1/vet/verify` accepts an `alert_id`, `outcome` (`Verified_Risk` or `False_Positive`), `vet_identifier`, and `notes`. Verification is allowed only when the alert is `Under_Vet_Review`, after the Milestone 4 acknowledgement flow. Unknown alerts return 404; alerts in another state or already verified return 409. `False_Positive` is recorded and the alert becomes `Resolved`; `Verified_Risk` remains available for a lab referral. These outcomes record a human workflow decision, not a medical diagnosis.
+- Python 3.11
+- FastAPI
+- SQLAlchemy async + PostgreSQL
+- Alembic migrations
+- SQLite for edge-local queue only
+- React + TypeScript + Vite
+- Vitest + Testing Library
+- YAMNet embedding pipeline + demo classifier
 
-Example vet request:
+## 6. M1-M9 Implementation Summary
 
-```json
-{"alert_id": "<alert-uuid>", "outcome": "Verified_Risk", "vet_identifier": "DEMO-VET-017", "notes": "Demo assessment; not clinical data."}
-```
+Implemented milestones include:
 
-`POST /api/v1/lab/referrals` accepts `alert_id`, `sample_identifier`, `requested_tests`, and optional `notes`. It only creates one referral for a `Verified_Risk` alert with a saved verification. False-positive, unresolved, or otherwise unverified alerts are rejected. `GET /api/v1/lab/referrals/<referral-id>` returns the referral, alert, and verification.
+- M1: monorepo foundation and service layout
+- M2: PostgreSQL schema and backend persistence
+- M3: ML feature pipeline and demo classifier
+- M4: alert + SLA escalation workflow
+- M5: veterinary verification + lab referral workflow
+- M6: tamper-evident SHA-256 audit ledger
+- M7: edge simulator offline queue, batching, retry, and sync
+- M8: React dashboard using the backend API contract
+- M9: final verification and documentation package
 
-Lab status updates use `PATCH /api/v1/lab/referrals/<referral-id>/status`. Allowed progression is `Pending` -> `Sample_Collected` -> `In_Lab` -> `Result_Available`, with `Cancelled` available before a result. A manually entered result is required for `Result_Available`; it is prefixed with `DEMO:` and marked `is_demo_result=true`. The service never fabricates a result. Making a result available resolves a Verified_Risk alert; no lab provider is integrated.
+## 7. How to Run the Backend
 
-The `vet_verifications` and `lab_referrals` PostgreSQL tables are in migration 003 (`make migrate`). Deterministic seed data includes an alert under vet review, a False_Positive example, a Verified_Risk example, and a Verified_Risk with a pending referral. Their notes/sample IDs are demo-only; no clinical results or disease statistics are seeded.
-
-## Milestone 4 Alert SLA Workflow
-
-High/Critical alerts begin at `Tier_1_Farm_Owner` and receive a demo SMS notification. Tier 1 has a 15-minute acknowledgement SLA; if it expires, the alert advances to `Tier_2_Field_Vet` with a demo SMS. Tier 2 has a 45-minute acknowledgement SLA; if it expires, the alert advances to `Tier_3_District_Officer` with a demo voice notification. Lower severities do not run SLA escalation.
-
-The alert state transitions use the existing statuses: `Pending_Triage` -> `Escalated` -> `Under_Vet_Review` -> `Verified_Risk` or `False_Positive` -> `Resolved`. A Tier 1 acknowledgement advances the alert to `Under_Vet_Review` and starts Tier 2 review. Acknowledgements require the current tier and a repeated/stale tier returns HTTP 409. This demo milestone does not expose an API to mark an alert verified or false positive; no escalation code can assert a disease outcome.
-
-The `escalation_records` PostgreSQL table records each tier's trigger, acknowledgement, reason, and timestamps. Apply migrations with `make migrate`. Acknowledging an alert is:
-
-```sh
-curl -X POST http://localhost:8000/api/v1/alerts/<alert-id>/acknowledge \
-	-H "Content-Type: application/json" \
-	-d '{"tier":"Tier_1_Farm_Owner"}'
-```
-
-Use `GET /api/v1/alerts/escalation-status` for dashboard-ready current deadlines and history, or `GET /api/v1/alerts/<alert-id>` for alert/event/shed/device detail. Both GET endpoints accept an optional ISO timestamp `at` for viewing state at a simulated time; GET does not mutate alerts. To actually process due notifications, call the evaluator with demo time:
+From the repo root:
 
 ```sh
-curl -X POST 'http://localhost:8000/api/v1/alerts/escalations/evaluate?at=2026-09-30T12:16:00Z'
+cd backend
+python -m uvicorn app.main:app --reload --port 8000
 ```
 
-For a seeded/test alert triggered at `12:00Z`, evaluating at `12:16Z` escalates to Tier 2 immediately. Evaluating again at `13:01Z` breaches Tier 2's 45-minute window from its Tier 2 notification time. No sleeps or background escalation loop are used.
-
-SMS and voice adapters are mock-only: they log and retain the recipient, notification type, alert ID, message, and timestamp in process memory. No real provider is contacted. Message language remains “Acoustic anomaly detected” and “Veterinary verification required.”
-
-## Milestone 3 ML Pipeline
-
-`POST /predict` accepts an uploaded WAV/audio file. The ML service decodes it, converts multichannel audio to mono, resamples to 16 kHz, peak-normalizes finite float32 samples, then extracts real pretrained YAMNet frame embeddings and averages them into a 1024-value vector. The YAMNet model is loaded lazily on the first prediction and reused for subsequent requests. If TensorFlow, TensorFlow Hub, or the model is unavailable, `/predict` returns HTTP 503; it does not substitute fake YAMNet features.
-
-The classifier is deliberately a deterministic, untrained demo MLP with Dense 256, Dense 64, and four-way Softmax layers. Its output classes are `Normal_Rumination`, `Coughing_Spike`, `Distress_Vocal`, and `Ambient_Noise`. Every response marks `classifier_status` as `UNTRAINED_DEMO`; its class and confidence are not calibrated, are not livestock accuracy measurements, and must not be used as health or clinical conclusions. No labeled livestock training data or accuracy claim is included.
-
-Run the ML service and create a synthetic demo WAV from the `ml_service/` directory:
+Health check:
 
 ```sh
-python -m uvicorn src.main:app --host 0.0.0.0 --port 8001
+curl http://localhost:8000/health
+```
+
+## 8. How to Run the ML Service
+
+```sh
+cd ml_service
+python -m uvicorn src.main:app --reload --port 8001
+```
+
+Example prediction request:
+
+```sh
 python -m src.demo_audio Coughing_Spike demo-cough.wav
 curl -F "audio=@demo-cough.wav;type=audio/wav" http://localhost:8001/predict
 ```
 
-The generated audio is a small deterministic demonstration signal, not a recording of livestock. `/predict` responds with `predicted_class`, `confidence`, `classifier_status`, `embedding_dimension`, `processing_time_ms`, and `model_version`, for example:
+The ML classifier remains an untrained demo classifier. It does not claim livestock medical accuracy.
 
-```json
-{"predicted_class": "Ambient_Noise", "confidence": 0.41, "classifier_status": "UNTRAINED_DEMO", "embedding_dimension": 1024, "processing_time_ms": 31.2, "model_version": "demo-yamnet-v1"}
-```
-
-Run the fast ML unit suite with `cd ml_service && python -m pytest -q`; it uses fake feature extraction and does not download/load YAMNet. The separate real-model integration test is opt-in: set `RUN_YAMNET_INTEGRATION=1` before running `python -m pytest -q tests/test_yamnet_integration.py` (in PowerShell, use `$env:RUN_YAMNET_INTEGRATION='1'`). Export the demo-only classifier to FP16 TFLite with `python -m src.export_tflite demo-classifier.tflite`. Model files and generated `ml_service/demo-*.wav` files are ignored by Git.
-
-Measured on the current Windows CPU environment with a synthetic 0.96-second sample: warm YAMNet feature extraction measured 22.52-45.55 ms across three calls; warm `/predict` measured 31.2 ms. The first `/predict` in a fresh process measured 23,420 ms including model initialization. These are local observations, not a latency guarantee. The real YAMNet model returned an embedding of shape `(1024,)`; the untrained head predicted `Ambient_Noise` for a synthetic cough signal, illustrating why its results have no classifier accuracy meaning. This remains an acoustic early-warning/anomaly prototype, not automated diagnosis.
-
-## Milestone 2 Database
-
-The PostgreSQL schema contains `farms`, `sheds`, `devices`, `acoustic_events`, and `alerts`. Farms own sheds; sheds own devices and reference events/alerts; devices own acoustic events; each alert refers to an event and shed. Event embeddings are stored as JSON. Database constraints enforce enum values, capacity bounds, confidence range, positive duration, and unique device IDs/event idempotency keys.
-
-Set `DATABASE_URL` and `DEVICE_HMAC_SECRET` in `.env`. The central backend requires PostgreSQL; there is no SQLite fallback. Run the migration and deterministic seed from the repository root:
+## 9. How to Run the Edge Simulator
 
 ```sh
-make migrate
-make seed
+cd edge_simulator
+python -m uvicorn src.main:app --reload --port 8002
 ```
 
-Seed records have fixed IDs and can be applied repeatedly after migration. The seed command never creates tables and never changes to a fallback database.
-
-## Edge API
-
-`POST /api/v1/edge/ingest` stores one event and creates a basic pending alert for non-background events with confidence of at least `0.65`. `POST /api/v1/edge/sync-batch` accepts 1-50 events, validates a canonical SHA-256 batch digest, and reports accepted, duplicate, and rejected records. `POST /api/v1/edge/heartbeat` updates the registered device's status and server heartbeat timestamp.
-
-An event signature is HMAC-SHA256 using `DEVICE_HMAC_SECRET` and compact, key-sorted JSON of the event fields except `signature`. The batch digest is SHA-256 over compact, key-sorted JSON of the `events` array, including each event signature. Device signatures are a lightweight shared-secret development mechanism, not production PKI.
-
-Example request shapes:
-
-```json
-{
-	"device_uid": "MIC-DEMO-ANAND-01",
-	"timestamp": 1780000000.0,
-	"event_type": "Cough",
-	"confidence": 0.89,
-	"duration_sec": 2.4,
-	"embedding": [0.01, -0.02],
-	"signature": "<64-character HMAC-SHA256 hex digest>"
-}
-```
-
-The batch body contains `events` in that shape and `batch_hash` set to the 64-character SHA-256 hex digest of the canonicalized event list. Example batch body:
-
-```json
-{"events": [{"device_uid": "MIC-DEMO-ANAND-01", "timestamp": 1780000000.0, "event_type": "Cough", "confidence": 0.89, "duration_sec": 2.4, "embedding": [0.01, -0.02], "signature": "<64-character HMAC-SHA256 hex digest>"}], "batch_hash": "<64-character SHA-256 hex digest>"}
-```
-
-A successful ingest returns a response like:
-
-```json
-{"accepted": true, "event_id": "<uuid>", "device_uid": "MIC-DEMO-ANAND-01", "status": "stored", "alert_created": true, "alert_id": "<uuid>"}
-```
-
-A batch response includes `accepted`, `duplicates`, `rejected`, and per-event results, for example `{"accepted": 1, "duplicates": 0, "rejected": 0, "results": [{"index": 0, "device_uid": "MIC-DEMO-ANAND-01", "accepted": true, "status": "stored", "event_id": "<uuid>"}]}`. Heartbeat accepts `device_uid`, optional `firmware_version`, and `status` (`Online`, `Offline`, or `Degraded`), for example:
-
-```json
-{"device_uid": "MIC-DEMO-ANAND-01", "firmware_version": "0.1.0", "status": "Online"}
-```
-
-The heartbeat response contains `acknowledged`, the device UID/status, and a server timestamp in `last_heartbeat_at`.
-
-The backend OpenAPI page at `http://localhost:8000/docs` provides the request/response schemas.
-
-## Technology Stack
-
-- Backend: Python 3.11, FastAPI, Pydantic v2, pydantic-settings, SQLAlchemy 2 async, asyncpg
-- ML and edge placeholders: lightweight FastAPI services
-- Frontend: React, TypeScript, Vite
-- Local orchestration: Docker Compose and PostgreSQL 16
-- Tests: pytest, HTTPX, and Vitest with React static rendering
-
-## Repository Structure
-
-```text
-backend/         FastAPI health endpoint and async DB session infrastructure
-ml_service/      ML service health placeholder
-edge_simulator/  Edge service health placeholder
-frontend/        Minimal React application
-docs/            Architecture and approved milestone plan
-```
-
-## Setup
-
-Requirements: Python 3.11+, Node.js with npm, and optionally Docker Compose.
-
-Copy `.env.example` to `.env` and replace the development-only database password and HMAC secret before deployment. Install dependencies with:
+CLI examples:
 
 ```sh
-make install
+cd edge_simulator
+python cli.py status
+python cli.py generate --count 3 --event-type Cough --confidence 0.91
+python cli.py queue
+python cli.py sync
+python cli.py heartbeat
 ```
 
-Start the backend locally from the repository root:
+The simulator stores local queued events in SQLite, retries when the backend is unavailable, and enforces the backend max batch size of 50.
+
+## 10. How to Run the Frontend
 
 ```sh
-cd backend && python -m uvicorn app.main:app --reload --port 8000
+cd frontend
+npm install
+npm run dev -- --host 0.0.0.0 --port 3000
 ```
 
-Start the ML service and edge placeholder in separate terminals:
+Open the dashboard in the browser and use the command center, alerts board, vet/lab workflow, audit ledger, and export pages.
 
-```sh
-cd ml_service && python -m uvicorn src.main:app --reload --port 8001
-cd edge_simulator && python -m uvicorn src.main:app --reload --port 8002
-```
+## 11. Demo Workflow
 
-Start the frontend with `cd frontend && npm run dev -- --host 0.0.0.0 --port 3000`.
+The intended end-to-end flow is:
 
-Health endpoints are `http://localhost:8000/health`, `http://localhost:8001/health`, and `http://localhost:8002/health`.
+1. Start backend, ML service, edge simulator, and frontend.
+2. Generate an event from the edge simulator.
+3. Observe the event in the local SQLite queue while offline or during a sync retry.
+4. Sync the queue to the backend.
+5. Confirm incoming acoustic event and alert creation.
+6. Review escalating SLA state.
+7. Acknowledge the alert.
+8. Run vet verification.
+9. Create a lab referral.
+10. Update lab status.
+11. Open the audit ledger and verify integrity.
+12. Review the dashboard and export states.
 
-## Tests and Build
+## 12. API Overview
 
-Run all lightweight tests with `make test`; build the frontend with `make build`. Backend API/model tests use a deterministic in-memory session double and do not require Docker or SQLite. Alembic can render PostgreSQL migration SQL offline with `cd backend && alembic upgrade head --sql`; live migration and seed execution require PostgreSQL.
+The major backend endpoints are:
 
-## Docker
+- `POST /api/v1/edge/ingest`
+- `POST /api/v1/edge/sync-batch`
+- `POST /api/v1/edge/heartbeat`
+- `GET /api/v1/alerts/escalation-status`
+- `GET /api/v1/alerts/{alert_id}`
+- `POST /api/v1/alerts/{alert_id}/acknowledge`
+- `POST /api/v1/vet/verify`
+- `POST /api/v1/lab/referrals`
+- `GET /api/v1/lab/referrals/{referral_id}`
+- `PATCH /api/v1/lab/referrals/{referral_id}/status`
+- `GET /api/v1/audit/chain`
+- `POST /api/v1/audit/verify-integrity`
+- `GET /api/v1/geo/outbreak-clusters`
+- `GET /api/v1/export/government-nadrs`
 
-Copy `.env.example` to `.env`, then run:
+## 13. Offline-First Behavior
 
-```sh
-docker compose up --build -d
-docker compose ps
-docker compose logs -f
-docker compose down
-```
+The edge simulator is intentionally local-first. Events are queued in SQLite until the backend is reachable, then they are synced as signed batches with a strict maximum batch size of 50. Failed sync attempts remain UNSYNCED with the last error recorded, and successful sync marks the queue as ACKNOWLEDGED or de-duplicates identical events.
 
-The backend waits for PostgreSQL's `pg_isready` healthcheck. After starting Compose, run `make migrate` and `make seed` from the repository root.
+## 14. Audit Ledger
+
+The backend includes a tamper-evident SHA-256 audit ledger. It is not a blockchain, token, or production ledger system. It stores sequential, linked, append-only workflow hashes and exposes integrity verification for the existing workflow events.
+
+## 15. Medical Boundary
+
+The project must remain within a clearly stated medical boundary:
+
+- Acoustic early warning and anomaly detection only
+- veterinary verification required
+- no automated disease diagnosis
+- no automated treatment recommendations
+- no clinical certainty inferred from acoustic alone
+
+## 16. Current Limitations
+
+- The project is a demo and not production deployment software.
+- Real PostgreSQL and Docker were not live-verified in this environment.
+- The ML classifier is demo-only and intentionally not clinically trained.
+- Government export and geospatial endpoints are exposed only when the current backend implements them; the frontend shows the real response state instead of fabricating data.
+- This repository is designed for demo workflows and validation, not field deployment.
+
+## 17. Testing Status
+
+Current verified status in this workspace:
+
+- Backend: 67 passed
+- Edge simulator: 13 passed
+- ML service: 18 passed, 1 skipped
+- Frontend: 4 passed
+- Frontend build: PASS
+- TypeScript build: PASS
+- Migration SQL rendering: PASS for PostgreSQL form via Alembic SQL generation
+
+Live PostgreSQL/Docker migration execution is not claimed here because PostgreSQL/Docker was unavailable in the current environment.
