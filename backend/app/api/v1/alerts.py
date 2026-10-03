@@ -23,6 +23,7 @@ from app.schemas.alerts import (
 )
 from app.schemas.device import DeviceResponse
 from app.schemas.shed import ShedResponse
+from app.services.audit import append_audit_block
 from app.services.notifications import notification_service
 from app.services.sla import evaluate_alert_sla, sla_deadline, transition_alert_status
 
@@ -140,6 +141,18 @@ async def _escalate_if_due(
     db.add(record)
     await db.flush()
     history.append(record)
+    await append_audit_block(
+        db,
+        entity_type="ALERT_ESCALATED",
+        entity_id=alert.id,
+        payload={
+            "from_tier": decision.from_tier.value,
+            "to_tier": decision.to_tier.value,
+            "reason": decision.reason,
+            "status": alert.status.value,
+        },
+        timestamp=now,
+    )
     return decision.to_tier
 
 
@@ -235,6 +248,17 @@ async def acknowledge_alert(
     elif alert.status != AlertStatus.Under_Vet_Review:
         transition_alert_status(alert, AlertStatus.Under_Vet_Review)
 
+    await append_audit_block(
+        db,
+        entity_type="ALERT_ACKNOWLEDGED",
+        entity_id=alert.id,
+        payload={
+            "acknowledged_tier": payload.tier.value,
+            "current_sla_tier": alert.current_sla_tier.value,
+            "status": alert.status.value,
+        },
+        timestamp=now,
+    )
     await db.commit()
     if notify_vet:
         notification_service.notify_tier(alert.id, SLATier.Tier_2_Field_Vet)

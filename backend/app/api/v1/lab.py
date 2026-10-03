@@ -17,6 +17,7 @@ from app.schemas.lab import (
     LabStatusUpdate,
 )
 from app.schemas.vet import VetVerificationDetail
+from app.services.audit import append_audit_block
 from app.services.sla import transition_alert_status
 
 router = APIRouter()
@@ -76,6 +77,20 @@ async def create_lab_referral(
         created_at=now,
     )
     db.add(referral)
+    await db.flush()
+    await append_audit_block(
+        db,
+        entity_type="LAB_REFERRAL_CREATED",
+        entity_id=referral.id,
+        payload={
+            "alert_id": str(alert.id),
+            "verification_id": str(verification.id),
+            "sample_identifier": referral.sample_identifier,
+            "requested_tests": referral.requested_tests,
+            "status": referral.status.value,
+        },
+        timestamp=now,
+    )
     await db.commit()
     return LabReferralResponse.model_validate(referral)
 
@@ -108,6 +123,7 @@ async def update_lab_referral_status(
     db: AsyncSession = Depends(get_session),
 ) -> LabReferralResponse:
     referral = await _get_referral(db, referral_id)
+    previous_status = referral.status
     if payload.status not in LAB_STATUS_TRANSITIONS[referral.status]:
         raise HTTPException(
             status_code=409,
@@ -142,5 +158,18 @@ async def update_lab_referral_status(
             transition_alert_status(alert, AlertStatus.Resolved)
             alert.resolved_at = now
 
+    await append_audit_block(
+        db,
+        entity_type="LAB_REFERRAL_STATUS_CHANGED",
+        entity_id=referral.id,
+        payload={
+            "alert_id": str(referral.alert_id),
+            "from_status": previous_status.value,
+            "to_status": referral.status.value,
+            "result": referral.result,
+            "is_demo_result": referral.is_demo_result,
+        },
+        timestamp=now,
+    )
     await db.commit()
     return LabReferralResponse.model_validate(referral)

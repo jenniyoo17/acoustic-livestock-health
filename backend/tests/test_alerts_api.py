@@ -6,6 +6,8 @@ from httpx import AsyncClient
 
 from app.api.v1.alerts import notification_service
 from app.models.alert import AlertStatus, AnomalySeverity, SLATier
+from app.models.audit_block import AuditBlock
+from app.models.audit_block import AuditBlock
 from app.models.escalation_record import EscalationRecord
 from app.services.notifications import NotificationService
 
@@ -79,6 +81,11 @@ async def test_simulated_sla_evaluation_escalates_tier_one_then_tier_two(
     assert repeated.status_code == 200
     assert repeated.json()["escalated_count"] == 0
     assert len(notifications.voice.records) == 1
+    audit_types = [block.entity_type for block in db_session.records[AuditBlock]]
+    assert audit_types.count("ALERT_ESCALATED") == 2
+    assert [block.entity_type for block in db_session.records[AuditBlock]].count(
+        "ALERT_ESCALATED"
+    ) == 2
 
 
 @pytest.mark.asyncio
@@ -118,6 +125,11 @@ async def test_acknowledgement_forwards_to_vet_and_rejects_repeat(
     assert vet_duplicate.status_code == 409
     assert notifications.sms.records[-1].recipient == "demo-field-vet"
     assert len(db_session.records[EscalationRecord]) == 2
+    audit_types = [block.entity_type for block in db_session.records[AuditBlock]]
+    assert audit_types.count("ALERT_ACKNOWLEDGED") == 2
+    assert [block.entity_type for block in db_session.records[AuditBlock]].count(
+        "ALERT_ACKNOWLEDGED"
+    ) == 2
 
 
 @pytest.mark.asyncio

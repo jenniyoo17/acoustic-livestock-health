@@ -23,6 +23,7 @@ from app.schemas.ingest import (
     IngestRequest,
     IngestResponse,
 )
+from app.services.audit import append_audit_block
 from app.services.notifications import notification_service
 
 router = APIRouter()
@@ -157,6 +158,19 @@ async def ingest_event(
             db.add(initial_record)
             send_initial_notification = True
             await db.flush()
+        await append_audit_block(
+            db,
+            entity_type="ALERT_CREATED",
+            entity_id=alert.id,
+            payload={
+                "acoustic_event_id": str(event.id),
+                "severity": alert.anomaly_severity.value,
+                "status": alert.status.value,
+                "current_sla_tier": alert.current_sla_tier.value,
+                "event_type": event.event_type.value,
+            },
+            timestamp=alert.triggered_at,
+        )
     await db.commit()
     if send_initial_notification and alert is not None:
         notification_service.notify_tier(alert.id, SLATier.Tier_1_Farm_Owner)
@@ -244,6 +258,20 @@ async def sync_batch(
                 db.add(initial_record)
                 initial_notification_ids.append(alert.id)
                 await db.flush()
+            await append_audit_block(
+                db,
+                entity_type="ALERT_CREATED",
+                entity_id=alert.id,
+                payload={
+                    "acoustic_event_id": str(event.id),
+                    "severity": alert.anomaly_severity.value,
+                    "status": alert.status.value,
+                    "current_sla_tier": alert.current_sla_tier.value,
+                    "event_type": event.event_type.value,
+                    "offline_sync": True,
+                },
+                timestamp=alert.triggered_at,
+            )
         accepted += 1
         results.append(
             BatchItemResult(

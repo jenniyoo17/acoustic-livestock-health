@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import SessionFactory, engine
+from app.services.audit import append_audit_block
 from app.models import (
     AcousticEvent,
     Alert,
@@ -411,14 +412,67 @@ async def seed_data() -> None:
             verification_id=verification_verified_risk.id,
             sample_identifier="DEMO-SAMPLE-001",
             requested_tests=["Demo sample intake"],
-            status=LabReferralStatus.Pending,
+            status=LabReferralStatus.Sample_Collected,
             referred_at=SEED_RECORDED_AT + timedelta(minutes=33),
             result=None,
             result_at=None,
-            notes="DEMO ONLY: pending referral; no lab result supplied.",
+            notes="DEMO ONLY: sample collected; no lab result supplied.",
             is_demo_result=False,
             created_at=SEED_RECORDED_AT + timedelta(minutes=33),
         )
+
+        audit_events = [
+            (
+                "ALERT_CREATED",
+                high_pending.id,
+                {"severity": high_pending.anomaly_severity.value, "status": high_pending.status.value},
+                SEED_RECORDED_AT,
+            ),
+            (
+                "ALERT_ESCALATED",
+                high_escalated.id,
+                {"from_tier": SLATier.Tier_1_Farm_Owner.value, "to_tier": SLATier.Tier_2_Field_Vet.value},
+                SEED_RECORDED_AT + timedelta(minutes=16),
+            ),
+            (
+                "ALERT_ACKNOWLEDGED",
+                vet_review_alert.id,
+                {"acknowledged_tier": SLATier.Tier_1_Farm_Owner.value, "status": AlertStatus.Under_Vet_Review.value},
+                vet_review_tier_one_time,
+            ),
+            (
+                "VET_VERIFICATION",
+                false_positive_alert.id,
+                {"outcome": VetVerificationOutcome.False_Positive.value, "vet_identifier": "DEMO-VET-001"},
+                false_positive_alert.resolved_at,
+            ),
+            (
+                "VET_VERIFICATION",
+                verified_risk_alert.id,
+                {"outcome": VetVerificationOutcome.Verified_Risk.value, "vet_identifier": "DEMO-VET-002"},
+                verification_verified_risk.verified_at,
+            ),
+            (
+                "LAB_REFERRAL_CREATED",
+                seed_id("lab-referral-verified-risk"),
+                {"alert_id": str(verified_risk_alert.id), "sample_identifier": "DEMO-SAMPLE-001"},
+                SEED_RECORDED_AT + timedelta(minutes=33),
+            ),
+            (
+                "LAB_REFERRAL_STATUS_CHANGED",
+                seed_id("lab-referral-verified-risk"),
+                {"from_status": LabReferralStatus.Pending.value, "to_status": LabReferralStatus.Sample_Collected.value},
+                SEED_RECORDED_AT + timedelta(minutes=34),
+            ),
+        ]
+        for entity_type, entity_id, payload, event_time in audit_events:
+            await append_audit_block(
+                session,
+                entity_type=entity_type,
+                entity_id=entity_id,
+                payload=payload,
+                timestamp=event_time,
+            )
 
     print("Seeded demo alerts for low, Tier 1, Tier 2, critical, under-review, false-positive, and pending-referral flows.")
 

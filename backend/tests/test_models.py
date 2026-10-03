@@ -6,6 +6,7 @@ from app.models import (
     AcousticEvent,
     Alert,
     AlertStatus,
+    AuditBlock,
     AnimalType,
     AnomalySeverity,
     Device,
@@ -32,6 +33,7 @@ def test_model_imports_enums_and_relationships():
         "alerts",
         "vet_verifications",
         "lab_referrals",
+        "audit_blocks",
     }
     assert {item.value for item in AnimalType} == {"Cattle", "Buffalo", "Goat", "Sheep"}
     assert {item.value for item in DeviceStatus} == {"Online", "Offline", "Degraded"}
@@ -66,6 +68,7 @@ def test_model_imports_enums_and_relationships():
     assert Alert.lab_referral.property.back_populates == "alert"
     assert VetVerification.lab_referral.property.back_populates == "verification"
     assert LabReferral.verification.property.back_populates == "lab_referral"
+    assert AuditBlock.__tablename__ == "audit_blocks"
 
 
 def test_model_foreign_keys_and_check_constraints():

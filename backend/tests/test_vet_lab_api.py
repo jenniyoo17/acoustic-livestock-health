@@ -4,6 +4,8 @@ import pytest
 from httpx import AsyncClient
 
 from app.models.alert import AlertStatus
+from app.models.audit_block import AuditBlock
+from app.models.audit_block import AuditBlock
 from app.models.lab_referral import LabReferral, LabReferralStatus
 from app.models.vet_verification import VetVerification, VetVerificationOutcome
 
@@ -31,6 +33,14 @@ async def test_vet_can_mark_under_review_alert_verified_risk(async_client: Async
     assert response.json()["verified_at"]
     assert seed_test_alert.status == AlertStatus.Verified_Risk
     assert len(db_session.records[VetVerification]) == 1
+    assert [block.entity_type for block in db_session.records[AuditBlock]] == [
+        "GENESIS",
+        "VET_VERIFICATION",
+    ]
+    assert [block.entity_type for block in db_session.records[AuditBlock]] == [
+        "GENESIS",
+        "VET_VERIFICATION",
+    ]
 
 
 @pytest.mark.asyncio
@@ -94,6 +104,14 @@ async def test_verified_risk_can_create_lab_referral_and_detail(async_client: As
     assert result["result"] is None
     assert result["is_demo_result"] is False
     assert len(db_session.records[LabReferral]) == 1
+    assert [block.entity_type for block in db_session.records[AuditBlock]] == [
+        "GENESIS",
+        "LAB_REFERRAL_CREATED",
+    ]
+    assert [block.entity_type for block in db_session.records[AuditBlock]] == [
+        "GENESIS",
+        "LAB_REFERRAL_CREATED",
+    ]
 
     detail = await async_client.get(f"/api/v1/lab/referrals/{result['id']}")
     assert detail.status_code == 200
@@ -163,7 +181,7 @@ async def test_duplicate_referral_is_rejected(async_client: AsyncClient, seed_ve
 
 
 @pytest.mark.asyncio
-async def test_lab_status_requires_valid_transition_and_demo_result(async_client: AsyncClient, seed_verified_alert):
+async def test_lab_status_requires_valid_transition_and_demo_result(async_client: AsyncClient, db_session, seed_verified_alert):
     create_response = await async_client.post(
         "/api/v1/lab/referrals",
         json={
@@ -199,6 +217,12 @@ async def test_lab_status_requires_valid_transition_and_demo_result(async_client
     assert result.json()["result"].startswith("DEMO:")
     assert result.json()["is_demo_result"] is True
     assert seed_verified_alert.status == AlertStatus.Resolved
+    assert [block.entity_type for block in db_session.records[AuditBlock]].count(
+        "LAB_REFERRAL_STATUS_CHANGED"
+    ) == 3
+    assert [block.entity_type for block in db_session.records[AuditBlock]].count(
+        "LAB_REFERRAL_STATUS_CHANGED"
+    ) == 3
 
 
 @pytest.mark.asyncio

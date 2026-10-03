@@ -8,7 +8,22 @@ An offline-first platform for detecting unusual livestock acoustic patterns, inc
 
 The planned system connects shed microphones to edge inference, offline storage and synchronization, a FastAPI backend backed by PostgreSQL, alert review workflows, a geospatial dashboard, and government data export. See [docs/architecture.md](docs/architecture.md) and [docs/implementation-plan.md](docs/implementation-plan.md).
 
-This repository currently contains **Milestones 1-5**: the monorepo foundation, PostgreSQL persistence and edge APIs, ML inference with real pretrained YAMNet embeddings plus an untrained demo classifier, a timestamp-driven SLA workflow, and demo veterinary verification/lab referral APIs. The full dashboard and later milestones are not implemented yet.
+This repository currently contains **Milestones 1-6**: the monorepo foundation, PostgreSQL persistence and edge APIs, ML inference with real pretrained YAMNet embeddings plus an untrained demo classifier, timestamp-driven SLA workflow, demo veterinary/lab workflows, and a PostgreSQL-backed tamper-evident audit hash chain. The full dashboard and later milestones are not implemented yet.
+
+## Milestone 6 Audit Ledger
+
+The audit ledger is an append-only SHA-256 hash chain stored in the central PostgreSQL database. It is **not a blockchain**: there is no network, consensus, wallet, smart contract, or external ledger. Block index, timestamp, previous hash, entity type/ID, and payload hash are serialized as compact JSON with sorted keys and UTF-8 encoded before SHA-256 hashing. Payloads use the same canonical JSON rules to produce `payload_hash`; raw workflow payloads are not stored in the ledger.
+
+The deterministic genesis block is index `0`, timestamp `1970-01-01T00:00:00+00:00`, `previous_hash=null`, `entity_type="GENESIS"`, `entity_id="0"`, and payload `{"type":"GENESIS"}`. The first event block references its hash. Unique indexes/hashes/transition keys and a PostgreSQL transaction-scoped advisory lock serialize appends; business writes and audit appends share a transaction. Repeated identical transitions are idempotent. A failed audit append aborts the corresponding workflow transaction rather than falling back to memory.
+
+Audited transitions include alert creation, SLA escalation, acknowledgement, veterinary verification, lab referral creation, and lab referral status changes. The audit ledger records application workflow events; it does not establish medical truth and does not replace veterinary verification.
+
+```sh
+curl http://localhost:8000/api/v1/audit/chain
+curl -X POST http://localhost:8000/api/v1/audit/verify-integrity
+```
+
+Integrity verification checks the unique sequential indexes, single deterministic genesis, previous-hash links, transition keys, and recalculated block hashes. Tampering/deletion is reported as `valid: false` with a block-specific error. The `audit_blocks` table is migration 004 and is included in the PostgreSQL-only deterministic demo seed.
 
 ## Milestone 5 Vet and Lab Workflow
 

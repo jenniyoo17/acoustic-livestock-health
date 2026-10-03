@@ -1,5 +1,7 @@
 from app.models.acoustic_event import AcousticEvent, EventType
 from app.models.alert import Alert, AlertStatus, AnomalySeverity, SLATier
+from app.models.audit_block import AuditBlock
+from app.models.audit_block import AuditBlock
 from app.models.device import Device, DeviceStatus
 from app.models.escalation_record import EscalationRecord
 from app.models.farm import Farm
@@ -11,6 +13,8 @@ __all__ = [
     "AcousticEvent",
     "Alert",
     "AlertStatus",
+    "AuditBlock",
+    "AuditBlock",
     "AnimalType",
     "AnomalySeverity",
     "Device",

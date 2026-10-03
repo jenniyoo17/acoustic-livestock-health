@@ -7,6 +7,7 @@ from app.api.v1.edge import calculate_batch_hash
 from app.core.device_auth import device_auth_service
 from app.models.acoustic_event import AcousticEvent
 from app.models.alert import Alert
+from app.models.audit_block import AuditBlock
 from app.schemas.ingest import IngestRequest
 from app.services.notifications import NotificationService
 
@@ -39,6 +40,10 @@ async def test_ingest_valid_event_persists_event_and_alert(async_client: AsyncCl
     assert len(db_session.records[AcousticEvent]) == 1
     assert len(db_session.records[Alert]) == 1
     assert db_session.records[AcousticEvent][0].shed_id == seed_test_device.shed_id
+    assert [block.entity_type for block in db_session.records[AuditBlock]] == [
+        "GENESIS",
+        "ALERT_CREATED",
+    ]
 
 
 @pytest.mark.asyncio

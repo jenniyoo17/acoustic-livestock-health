@@ -9,6 +9,7 @@ from app.db.session import get_session
 from app.models.alert import Alert, AlertStatus
 from app.models.vet_verification import VetVerification, VetVerificationOutcome
 from app.schemas.vet import VetVerificationResponse, VetVerifyRequest
+from app.services.audit import append_audit_block
 from app.services.sla import transition_alert_status
 
 router = APIRouter()
@@ -49,6 +50,19 @@ async def verify_alert(
         transition_alert_status(alert, AlertStatus.Resolved)
         alert.resolved_at = now
 
+    await append_audit_block(
+        db,
+        entity_type="VET_VERIFICATION",
+        entity_id=alert.id,
+        payload={
+            "verification_id": str(verification.id),
+            "outcome": verification.verification_status.value,
+            "vet_identifier": verification.vet_identifier,
+            "assessment_notes": verification.assessment_notes,
+            "alert_status": alert.status.value,
+        },
+        timestamp=now,
+    )
     await db.commit()
     return VetVerificationResponse(
         verification_id=verification.id,
